@@ -3,6 +3,7 @@
 
 import os
 import plistlib
+import pwd
 import sys
 import time
 import subprocess
@@ -41,6 +42,9 @@ TIMEOUT_SEC = 180
 
 # ShadowsocksX-NG bundle identifier
 SSXNG_BUNDLE_ID = "com.qiuyuzhou.shadowsocksX-NG"
+
+# Steamcommunity_302 进程名，请通过 `ps aux | grep -i steam` 确认后替换
+STEAM_PROCESS_NAME = "Steamcommunity_302"
 
 # ---------- 辅助 ----------
 def create_ecs_client(region_id):
@@ -152,6 +156,76 @@ def wait_for_running_and_get_ip(client, instance_id):
             print(f"[ERROR] 查询状态失败: {e}", file=sys.stderr)
             time.sleep(CHECK_INTERVAL_SEC)
 
+def _ensure_root():
+    """Steamcommunity_302 是 root 进程，脚本需要以 root 运行。"""
+
+    # 探测参数：用于检测 sudoers 是否允许免密码运行本脚本
+    if len(sys.argv) > 1 and sys.argv[1] == "--_ensure_root_probe":
+        sys.exit(0)
+
+    if os.geteuid() == 0:
+        return
+
+    script_path = os.path.abspath(sys.argv[0])
+    python_path = os.path.abspath(sys.executable)
+
+    # 探测 sudoers 是否已配置（stdin 关闭，避免 sudo 等待密码输入导致卡住）
+    probe = subprocess.run(
+        ["sudo", "-n", python_path, script_path, "--_ensure_root_probe"],
+        capture_output=True, stdin=subprocess.DEVNULL, check=False
+    )
+    if probe.returncode == 0:
+        os.execvp("sudo", ["sudo", python_path, script_path] + sys.argv[1:])
+
+    user = pwd.getpwuid(os.getuid()).pw_name
+    print("[ERROR] 当前不是 root 用户，本脚本需要 root 权限才能停止 Steamcommunity_302。", file=sys.stderr)
+    print("[INFO] 请执行以下命令配置免密码 sudo（只需一次）：", file=sys.stderr)
+    print(f"        sudo sh -c 'echo \"{user} ALL=(ALL) NOPASSWD: {python_path} {script_path}, {python_path} {script_path} *\" > /etc/sudoers.d/auto_vpn'", file=sys.stderr)
+    print("        sudo chmod 440 /etc/sudoers.d/auto_vpn", file=sys.stderr)
+    print("[INFO] 配置完成后，重新运行本脚本即可。", file=sys.stderr)
+    sys.exit(1)
+
+def _get_steamcommunity_pids():
+    """返回 Steamcommunity_302 相关进程的 PID 列表（排除当前脚本自身）。"""
+    result = subprocess.run(
+        ["pgrep", "-f", "-i", STEAM_PROCESS_NAME],
+        capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+    own_pid = str(os.getpid())
+    return [p.strip() for p in result.stdout.strip().split("\n") if p.strip() and p.strip() != own_pid]
+
+def stop_steamcommunity_302_if_running():
+    """如果 Steamcommunity_302 正在运行，则停止它。"""
+    try:
+        pids = _get_steamcommunity_pids()
+        if not pids:
+            print(f"[INFO] 未检测到 {STEAM_PROCESS_NAME} 进程", file=sys.stderr)
+            return
+
+        print(f"[INFO] 检测到 {STEAM_PROCESS_NAME}，PID: {', '.join(pids)}，正在停止", file=sys.stderr)
+
+        # 1. 普通终止
+        subprocess.run(["kill"] + pids, capture_output=True, check=False)
+        time.sleep(1.5)
+
+        # 2. 若仍在，强制终止
+        pids = _get_steamcommunity_pids()
+        if pids:
+            subprocess.run(["kill", "-9"] + pids, capture_output=True, check=False)
+            time.sleep(0.5)
+
+        # 3. 最终校验
+        pids = _get_steamcommunity_pids()
+        if pids:
+            print(f"[ERROR] {STEAM_PROCESS_NAME} 停止失败，残留 PID: {', '.join(pids)}", file=sys.stderr)
+        else:
+            print(f"[INFO] {STEAM_PROCESS_NAME} 已停止", file=sys.stderr)
+    except Exception as e:
+        print(f"[WARN] 停止 {STEAM_PROCESS_NAME} 时出错: {e}", file=sys.stderr)
+
+
 def update_server_ip(new_ip):
     """
     修改 ShadowsocksX-NG 当前激活（上一次连接）服务器的 ServerHost，
@@ -251,7 +325,9 @@ def _restart_shadowsocks_app():
     print("[INFO] 已重启 ShadowsocksX-NG，请检查 UI 中的服务器 IP", file=sys.stderr)
 
 def main():
-    # 创建实例并获取 IP（注释掉测试部分，实际使用取消注释）
+    _ensure_root()
+
+    # 创建实例并获取 IP
     client = create_ecs_client(REGION_ID)
     print(f"[INFO] 尝试使用首选规格 {PREFERRED_INSTANCE_TYPE}", file=sys.stderr)
     instance_id = run_instances(client)
@@ -260,6 +336,8 @@ def main():
         print("[ERROR] 无法获取公网 IP", file=sys.stderr)
         sys.exit(1)
     print(f"[SUCCESS] 公网 IP: {public_ip}", file=sys.stderr)
+
+    stop_steamcommunity_302_if_running()
 
     if not update_server_ip(public_ip):
         print("[ERROR] 修改 ShadowsocksX-NG 服务器 IP 失败", file=sys.stderr)
