@@ -175,6 +175,7 @@ def _ensure_root():
         capture_output=True, stdin=subprocess.DEVNULL, check=False
     )
     if probe.returncode == 0:
+        print("[INFO] 需要 root 权限，正在使用 sudo 重新启动脚本...", file=sys.stderr)
         os.execvp("sudo", ["sudo", python_path, script_path] + sys.argv[1:])
 
     user = pwd.getpwuid(os.getuid()).pw_name
