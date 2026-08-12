@@ -39,15 +39,43 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET=your-access-key-secret
 
 ## 使用
 
+### 终端运行
+
+脚本需要 **root 权限** 才能停止 Steamcommunity_302 进程，请使用 `sudo` 执行：
+
 ```bash
-python auto_vpn.py
+cd /path/to/your/project
+sudo .venv/bin/python auto_vpn.py
 ```
 
-脚本执行流程：
-1. 创建阿里云 ECS 抢占式实例（中国香港，1小时自动释放）
-2. 等待实例 Running 并获取公网 IP
-3. 将 IP 写入 ShadowsocksX-NG 当前激活的服务器配置
-4. 重启 ShadowsocksX-NG 使新配置生效
+首次以普通用户运行时，脚本会提示配置免密码 sudo（只需一次），按提示执行后再次运行即可。
+
+### Automator App 运行
+
+在 Automator 的“运行 AppleScript”操作中填入以下内容（将 `/path/to/your/project` 替换为实际路径），双击 App 即可运行：
+
+```applescript
+on run {input, parameters}
+    set projectPath to "/path/to/your/project"
+    set scriptCmd to "cd " & quoted form of projectPath & " && . .venv/bin/activate && python auto_vpn.py"
+
+    tell application "Terminal"
+        do script scriptCmd
+        activate
+    end tell
+
+    return input
+end run
+```
+
+### 脚本执行流程
+
+1. 检测当前是否为 root，非 root 时尝试通过 sudo 重新启动
+2. 创建阿里云 ECS 抢占式实例（中国香港，1小时自动释放）
+3. 等待实例 Running 并获取公网 IP
+4. 停止 Steamcommunity_302 进程（避免与 ShadowsocksX-NG 冲突）
+5. 将 IP 写入 ShadowsocksX-NG 当前激活的服务器配置
+6. 重启 ShadowsocksX-NG 使新配置生效
 
 ## 项目结构
 
