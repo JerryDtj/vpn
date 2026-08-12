@@ -44,18 +44,19 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET=your-access-key-secret
 脚本需要 **root 权限** 才能停止 Steamcommunity_302 进程，请使用 `sudo` 执行：
 
 ```bash
-sudo /Users/dengtianjiao/PycharmProjects/vpn/.venv/bin/python /Users/dengtianjiao/PycharmProjects/vpn/auto_vpn.py
+cd /path/to/your/project
+sudo .venv/bin/python auto_vpn.py
 ```
 
 首次以普通用户运行时，脚本会提示配置免密码 sudo（只需一次），按提示执行后再次运行即可。
 
 ### Automator App 运行
 
-在 Automator 的“运行 AppleScript”操作中填入以下内容，双击 App 即可运行：
+在 Automator 的“运行 AppleScript”操作中填入以下内容（将 `/path/to/your/project` 替换为实际路径），双击 App 即可运行：
 
 ```applescript
 on run {input, parameters}
-    set projectPath to "/Users/dengtianjiao/PycharmProjects/vpn"
+    set projectPath to "/path/to/your/project"
     set scriptCmd to "cd " & quoted form of projectPath & " && . .venv/bin/activate && python auto_vpn.py"
 
     tell application "Terminal"
